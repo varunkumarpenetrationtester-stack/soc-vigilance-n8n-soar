@@ -1,0 +1,16 @@
+{
+  "data": {
+    "srcip": "6.6.6.6",
+    "dsthost": "server01"
+  },
+  "rule": {
+    "id": "100100",
+    "description": "SSH Brute Force",
+    "level": 8
+  },
+  "agent": {
+    "name": "server01"
+  },
+  "timestamp": "2026-02-03T10:12:00Z"
+}
+
