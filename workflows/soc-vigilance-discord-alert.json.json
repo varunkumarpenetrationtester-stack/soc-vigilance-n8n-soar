@@ -1,0 +1,274 @@
+{
+  "name": "soc-vigilance-discord-alert.json",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "/soc-alert-intake",
+        "options": {
+          "responseCode": {
+            "values": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1248,
+        96
+      ],
+      "id": "b190382c-95d2-40d7-a316-3c8baa68c9c3",
+      "name": "Webhook",
+      "webhookId": "b668f1fe-d284-4904-b8a6-7de8b2a086f0"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c1299a5e-2ae7-466d-959d-fa345caab029",
+              "name": "source",
+              "value": "={{$json.body.source}}",
+              "type": "string"
+            },
+            {
+              "id": "95041a4a-838f-472d-a9f5-1c94736140cb",
+              "name": "alert_id",
+              "value": "={{$json.body.alert_id}}",
+              "type": "string"
+            },
+            {
+              "id": "f7969759-c60c-4878-91ac-a53a9a846412",
+              "name": "src_ip",
+              "value": "={{$json.body.src_ip}}",
+              "type": "string"
+            },
+            {
+              "id": "e038a2a1-7c7a-4442-9eaa-ca0b29749be4",
+              "name": "dst_host",
+              "value": "={{$json.body.dst_host}}",
+              "type": "string"
+            },
+            {
+              "id": "8dd3ccba-6e1e-48fc-be11-e3eb2f7c725e",
+              "name": "rule",
+              "value": "={{$json.body.rule}}",
+              "type": "string"
+            },
+            {
+              "id": "7057c23d-2a3b-417a-bac9-e4e7be331e90",
+              "name": "severity",
+              "value": "={{$json.body.severity}}",
+              "type": "string"
+            },
+            {
+              "id": "473033be-772c-4ca4-86cf-da3729672d4d",
+              "name": "timestamp",
+              "value": "={{$json.body.timestamp}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1040,
+        96
+      ],
+      "id": "3edca3ea-aaf7-4fb0-ab6b-4989ea589c25",
+      "name": "Set_Alert_Fields"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  {\n    json: {\n      fingerprint: `${$json.src_ip}-${$json.dst_host}-${$json.rule}`,\n      source: $json.source,\n      alert_id: $json.alert_id,\n      rule: $json.rule,\n      severity: Number($json.severity),\n      src_ip: $json.src_ip,\n      dst_host: $json.dst_host,\n      event_time: new Date($json.timestamp).getTime()\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -832,
+        96
+      ],
+      "id": "00e79aa8-75cf-417c-a756-5ff572694f6e",
+      "name": "Normalize_And_Fingerprint"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 10-minute deduplication window\nconst DEDUP_WINDOW_MS = 10 * 60 * 1000;\n\nconst fingerprint = $json.fingerprint;\nconst now = Date.now();\n\n// ✅ Correct API for Code node\nconst staticData = $getWorkflowStaticData('global');\n\nconst lastSeen = staticData[fingerprint];\n\nif (lastSeen && (now - lastSeen < DEDUP_WINDOW_MS)) {\n  // Duplicate → DROP\n  return [];\n}\n\n// Store timestamp and allow alert\nstaticData[fingerprint] = now;\nreturn [{ json: $json }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -624,
+        96
+      ],
+      "id": "d1f4fe76-c33e-4345-afcf-d088104c4234",
+      "name": "Deduplication_Engine"
+    },
+    {
+      "parameters": {
+        "jsCode": "let score = 0;\n\n// Severity-based weight\nif ($json.severity >= 9) {\n  score += 50;\n} else if ($json.severity >= 7) {\n  score += 40;\n} else if ($json.severity >= 5) {\n  score += 20;\n}\n\n// Behavior-based keywords\nconst rule = $json.rule.toLowerCase();\n\nif (rule.includes(\"brute\")) score += 20;\nif (rule.includes(\"lateral\")) score += 30;\nif (rule.includes(\"ransom\")) score += 40;\nif (rule.includes(\"exfil\")) score += 40;\n\n// Off-hours context (UTC)\nconst hour = new Date($json.event_time).getUTCHours();\nif (hour >= 0 && hour <= 5) score += 10;\n\n// Attach score\n$json.risk_score = score;\n\nreturn [{ json: $json }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -416,
+        96
+      ],
+      "id": "c06bbd96-af2e-44ee-880c-1c995d05ffd2",
+      "name": "Risk_Scoring_Engine"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "24792530-7b60-4255-8af9-24e0721078ff",
+              "leftValue": "={{$json.risk_score}}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -208,
+        96
+      ],
+      "id": "5f72bc29-ab5a-4d81-a89b-27b0d7e1624f",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://discord.com/api/webhooks/1468211222456307857/Q_B_2bRBST47dDRqZXXmTvZ2XgtEGOg9Cg104EMrze66WT8tNcr1FH6vJJA-j6IeRWPm",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"username\": \"SOC Vigilance Bot\",\n  \"embeds\": [\n    {\n      \"title\": \"🚨 High-Risk Security Alert\",\n      \"color\": 15158332,\n      \"fields\": [\n        {\n          \"name\": \"Rule\",\n          \"value\": \"{{ $json.rule }}\",\n          \"inline\": false\n        },\n        {\n          \"name\": \"Source IP\",\n          \"value\": \"{{ $json.src_ip }}\",\n          \"inline\": true\n        },\n        {\n          \"name\": \"Target Host\",\n          \"value\": \"{{ $json.dst_host }}\",\n          \"inline\": true\n        },\n        {\n          \"name\": \"Severity\",\n          \"value\": \"{{ $json.severity.toString() }}\",\n          \"inline\": true\n        },\n        {\n          \"name\": \"Risk Score\",\n          \"value\": \"{{ $json.risk_score.toString() }}\",\n          \"inline\": true\n        }\n      ],\n      \"footer\": {\n        \"text\": \"Wazuh → n8n SOAR\"\n      }\n    }\n  ]\n}\n",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        0,
+        0
+      ],
+      "id": "2833d0c5-dcb0-431a-8dd3-e638b0040913",
+      "name": "HTTP Request"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Set_Alert_Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set_Alert_Fields": {
+      "main": [
+        [
+          {
+            "node": "Normalize_And_Fingerprint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize_And_Fingerprint": {
+      "main": [
+        [
+          {
+            "node": "Deduplication_Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deduplication_Engine": {
+      "main": [
+        [
+          {
+            "node": "Risk_Scoring_Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Risk_Scoring_Engine": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": -1
+  },
+  "versionId": "d834067d-139e-4929-8b71-8b4a31f3a9b8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e031433caf1319a365c5c7f9642b5762b5525cdb6c7f9cd3357cc7da673c708a"
+  },
+  "id": "zq86YE1EXDS_PK7xFn-pX",
+  "tags": []
+}
